@@ -1,0 +1,12 @@
+[
+  {
+    "trial_id": 0,
+    "video_url": "trials/trial_00/scene.mp4",
+    "image_a_url": "trials/trial_00/next_frame_left.png",
+    "image_b_url": "trials/trial_00/next_frame_right.png",
+    "actor_url": "trials/trial_00/actor.png",
+    "correct_choice": "B",
+    "object_1_name": "bananas",
+    "object_2_name": "redberries",
+    }
+]
