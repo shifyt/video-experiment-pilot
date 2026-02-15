@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video Experiment</title>
+  <!-- Use browser builds so globals (initJsPsych, jsPsychHtmlKeyboardResponse, etc.) are available in script tags -->
+  <script src="https://unpkg.com/jspsych@8.2.3/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-video-keyboard-response@2.1.1/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-text@2.0.0/dist/index.browser.min.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-call-function@2.1.0/dist/index.browser.min.js"></script>
+  <link href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" rel="stylesheet" type="text/css" />
+  <style>
+    .choice-container { display: flex; gap: 2rem; justify-content: center; align-items: flex-start; margin: 1rem 0; }
+    .choice-option { text-align: center; }
+    .choice-option img { max-width: 420px; max-height: 350px; border: 2px solid #333; }
+    .video-wrapper video { max-width: 560px; max-height: 420px; }
+  </style>
+</head>
+<body></body>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyD7ZO8vTINROEzG3nDWlx9rkb5aQjIXoe4",
+  authDomain: "woodward-experiment.firebaseapp.com",
+  projectId: "woodward-experiment",
+  storageBucket: "woodward-experiment.firebasestorage.app",
+  messagingSenderId: "752279273335",
+  appId: "1:752279273335:web:9d519f3847e1a257742b72",
+  measurementId: "G-XD7SMQY7N4"
+};
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.saveDataToFirebase = async function(data) {
+    try {
+      await addDoc(collection(db, "prolific_data"), data);
+      console.log("Data saved successfully");
+    } catch (e) {
+      console.error("Error saving data:", e);
+    }
+  };
+</script>
+<script defer>
+  // Set your Prolific completion URL here (from Prolific study setup) or leave empty
+  const PROLIFIC_COMPLETION_URL = '';
+  // Optional: URL that receives POST with CSV body (e.g. your server). Leave '' to not send.
+  const DATA_SAVE_URL = '';
+
+  const jsPsych = initJsPsych({
+    on_finish: function() {
+      const csv = jsPsych.data.get().csv();
+      const completionUrl = jsPsych.data.getURLVariable('COMPLETION_URL') || PROLIFIC_COMPLETION_URL;
+      const subject_id = jsPsych.data.getURLVariable('PROLIFIC_PID') || '';
+      const study_id = jsPsych.data.getURLVariable('STUDY_ID') || '';
+      const session_id = jsPsych.data.getURLVariable('SESSION_ID') || '';
+
+      function doRedirect() {
+        if (completionUrl) window.location = decodeURIComponent(completionUrl);
+      }
+
+      function saveThenRedirect() {
+        if (window.saveDataToFirebase) {
+          window.saveDataToFirebase({
+            csv: csv,
+            subject_id: subject_id,
+            study_id: study_id,
+            session_id: session_id,
+            submittedAt: new Date().toISOString()
+          }).then(doRedirect).catch(function() { doRedirect(); });
+        } else if (DATA_SAVE_URL) {
+          fetch(DATA_SAVE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/csv' },
+            body: csv
+          }).then(doRedirect).catch(function() { doRedirect(); });
+        } else {
+          doRedirect();
+        }
+      }
+      saveThenRedirect();
+    }
+  });
+
+  // Capture Prolific IDs
+  const subject_id = jsPsych.data.getURLVariable('PROLIFIC_PID');
+  const study_id = jsPsych.data.getURLVariable('STUDY_ID');
+  const session_id = jsPsych.data.getURLVariable('SESSION_ID');
+  jsPsych.data.addProperties({ subject_id, study_id, session_id });
+
+  // Base path for media: works for file:// (open in Chrome), GitHub Pages, or any server
+  const pathname = typeof location !== 'undefined' ? location.pathname : '';
+  let MEDIA_BASE = pathname ? pathname.replace(/[^/]+$/, '') : '';
+
+  // Inline manifest: used when opening as file (no server) or when trials/manifest.json is missing.
+  // Edit this to match your one trial (or add more). Same structure as trials/manifest.json.
+  const INLINE_MANIFEST = [
+    {
+      trial_id: 0,
+      video_url: 'trials/trial_00/scene.mp4',
+      image_a_url: 'trials/trial_00/next_frame_left.png',
+      image_b_url: 'trials/trial_00/next_frame_right.png',
+      actor_url: 'trials/trial_00/actor.png',
+      correct_choice: 'B',
+      object_1_name: 'bananas',
+      object_2_name: 'redberries',
+      object_1_color: 'red',
+      object_2_color: 'blue',
+      visual_grounding_type: 'color'
+    }
+  ];
+
+  let TRIAL_MANIFEST = [];
+
+  async function loadManifest() {
+    const isFileProtocol = typeof location !== 'undefined' && location.protocol === 'file:';
+    if (isFileProtocol) {
+      TRIAL_MANIFEST = INLINE_MANIFEST;
+      return;
+    }
+    const manifestUrl = (MEDIA_BASE || '.') + 'trials/manifest.json';
+    try {
+      const r = await fetch(manifestUrl);
+      if (!r.ok) throw new Error(r.status);
+      TRIAL_MANIFEST = await r.json();
+    } catch (e) {
+      console.warn('Manifest at ' + manifestUrl + ' failed, using inline manifest:', e);
+      TRIAL_MANIFEST = INLINE_MANIFEST;
+    }
+  }
+
+  function url(path) {
+    const p = (MEDIA_BASE + path).replace(/\/+/g, '/').replace(/^\/*/, '/');
+    if (p.startsWith('http')) return p;
+    const origin = typeof location !== 'undefined' ? location.origin : '';
+    return origin + p;
+  }
+
+  function urlAlternate(path) {
+    const origin = typeof location !== 'undefined' ? location.origin : '';
+    return origin + ('/experiment/' + path).replace(/\/+/g, '/');
+  }
+
+  // Captcha: simple human verification before experiment
+  function buildCaptchaTrial() {
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    return {
+      type: jsPsychSurveyText,
+      questions: [{ prompt: 'To verify you\'re human, please type the following number: <strong>' + code + '</strong>', name: 'captcha', rows: 1, columns: 10 }],
+      data: { question: 'captcha' },
+      on_finish: function(data) {
+        data.captcha_correct = (data.response && data.response.captcha && data.response.captcha.trim() === code);
+      }
+    };
+  }
+
+  // Consent: shown right after captcha, before welcome
+  const consentTrial = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+      <div style="max-width: 640px; margin: 0 auto; text-align: left;">
+        <h2 style="margin-top: 0;">Informed Consent</h2>
+        <p>By answering the following questions, you are participating in a study being led by a scientist in the Weizmann Institute of Science Department of Computer Science and Applied Mathematics. If you have questions about this research, please contact Shimon Ullman at <a href="mailto:Shimon.Ullman@weizmann.ac.il">Shimon.Ullman@weizmann.ac.il</a>.</p>
+        <p>Your participation in this research is voluntary. You may decline to answer any or all of the following questions. You may decline further participation, at any time, without adverse consequences. Your anonymity is assured; the researchers who have requested your participation will not receive any personal information about you.</p>
+        <p style="margin-top: 1.5em;"><strong>By checking the box and clicking Continue, you indicate that you are at least 18 years old and voluntarily agree to participate in this study.</strong></p>
+        <p style="margin-top: 1.5em;">
+          <label style="display: flex; align-items: flex-start; gap: 0.5em; cursor: pointer;">
+            <input type="checkbox" id="consent-checkbox" style="margin-top: 0.25em; width: 1.1em; height: 1.1em; flex-shrink: 0;" />
+            <span>I have read the above and agree to participate (I am at least 18 years old).</span>
+          </label>
+        </p>
+        <p style="text-align: center; margin-top: 1.5em;">
+          <button type="button" id="consent-btn" disabled style="padding: 0.5em 1.2em; cursor: pointer;">Continue</button>
+        </p>
+      </div>
+    `,
+    choices: 'NO_KEYS',
+    data: { question: 'consent' },
+    on_load: function() {
+      const btn = document.getElementById('consent-btn');
+      const cb = document.getElementById('consent-checkbox');
+      cb.addEventListener('change', function() {
+        btn.disabled = !cb.checked;
+      });
+      btn.addEventListener('click', function() {
+        if (!cb.checked) return;
+        jsPsych.finishTrial();
+      });
+    }
+  };
+
+  const fixation = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+      <div style="font-size:48px;">+</div>
+      <p>Focus on the cross in the center.</p>
+      <p>Press the <strong>space bar</strong> to start the next video.</p>
+    `,
+    choices: [' '],  // space bar
+    trial_duration: null
+  };
+
+  const blank = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: '',
+    choices: 'NO_KEYS',
+    trial_duration: 200
+  };
+
+  function buildTrialTimeline(trialData) {
+    const videoUrl = url(trialData.video_url);
+    const videoUrlAlt = urlAlternate(trialData.video_url);
+    const videoTrial = {
+      type: jsPsychCallFunction,
+      async: true,
+      func: function(done) {
+        const el = document.getElementById('jspsych-content') || document.body;
+        const vid = document.createElement('video');
+        const msg = document.createElement('div');
+        msg.innerHTML = 'Press the <strong>space key</strong> to start the video.';
+        msg.style.marginTop = '1em';
+        msg.style.minHeight = '2.5em';
+        vid.preload = 'auto';
+        vid.autoplay = false;
+        vid.controls = false;
+        vid.playsInline = true;
+        vid.style.width = '560px';
+        vid.style.height = '420px';
+        vid.style.objectFit = 'contain';
+        var triedAlt = false;
+        vid.onerror = function() {
+          if (!triedAlt && videoUrl !== videoUrlAlt) {
+            triedAlt = true;
+            vid.src = videoUrlAlt;
+            console.log('Trying alternate video URL:', videoUrlAlt);
+            return;
+          }
+          msg.innerHTML = 'Video could not load.<br>Tried: <a href="' + videoUrl + '" target="_blank">' + videoUrl + '</a><br>Also tried: <a href="' + videoUrlAlt + '" target="_blank">' + videoUrlAlt + '</a><br>Run the server from the <code>experiment</code> folder: <code>python experiment/serve.py</code> from project root, then open <a href="http://localhost:8000/">http://localhost:8000/</a>';
+          msg.style.color = '#c00';
+          msg.style.textAlign = 'left';
+          msg.style.maxWidth = '560px';
+        };
+        vid.oncanplay = function() {
+          msg.innerHTML = 'Press the <strong>space key</strong> to start the video.';
+          msg.style.color = '';
+        };
+        vid.src = videoUrl;
+        console.log('Video URL:', videoUrl);
+        const wrap = document.createElement('div');
+        wrap.className = 'video-wrapper';
+        wrap.appendChild(vid);
+        wrap.appendChild(msg);
+        el.innerHTML = '';
+        el.appendChild(wrap);
+        let state = 'wait_start';
+        function onKey(e) {
+          if (e.code !== 'Space') return;
+          e.preventDefault();
+          if (state === 'wait_start') {
+            vid.play();
+            msg.style.visibility = 'hidden';
+            state = 'playing';
+          } else if (state === 'wait_continue') {
+            document.removeEventListener('keydown', onKey);
+            done();
+          }
+        }
+        vid.addEventListener('ended', function() {
+          msg.innerHTML = 'Press the <strong>space key</strong> to continue to the questions.';
+          msg.style.visibility = 'visible';
+          state = 'wait_continue';
+        });
+        document.addEventListener('keydown', onKey);
+      },
+      data: { trial_id: trialData.trial_id, phase: 'video' }
+    };
+
+    const choiceStimulus = `
+      <p>What do you predict will happen next? Press A or B.</p>
+      <div class="choice-container">
+        <div class="choice-option">
+          <p><strong>A</strong></p>
+          <img src="${url(trialData.image_a_url)}" alt="Option A" />
+        </div>
+        <div class="choice-option">
+          <p><strong>B</strong></p>
+          <img src="${url(trialData.image_b_url)}" alt="Option B" />
+        </div>
+      </div>
+    `;
+
+    const choiceTrial = {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: choiceStimulus,
+      choices: ['a', 'b'],
+      data: {
+        trial_id: trialData.trial_id,
+        correct_choice: trialData.correct_choice,
+        question: 'ab_choice'
+      },
+      on_finish: function(data) {
+        const key = data.response;
+        data.choice = (key === 'a') ? 'A' : 'B';
+        data.correct = data.choice === data.correct_choice;
+      }
+    };
+
+    const visualGroundingTrial = {
+      type: jsPsychSurveyText,
+      questions: [{ prompt: 'Please name at least one of the objects that appeared in the video before.', name: 'vg_response', rows: 1, columns: 40 }],
+      data: {
+        trial_id: trialData.trial_id,
+        visual_grounding_type: trialData.visual_grounding_type,
+        object_1_name: trialData.object_1_name,
+        object_2_name: trialData.object_2_name,
+        object_1_color: trialData.object_1_color,
+        object_2_color: trialData.object_2_color,
+        question: 'visual_grounding'
+      }
+    };
+
+    const explanationTrial = {
+      type: jsPsychSurveyText,
+      questions: [{ prompt: 'Briefly explain why you chose A or B.', name: 'explanation', rows: 3, columns: 50 }],
+      data: { trial_id: trialData.trial_id, question: 'explanation' }
+    };
+
+    const animacyStimulus = `
+      <p><img src="${url(trialData.actor_url)}" alt="Actor" style="max-width:180px; max-height:150px; display:block; margin:0 auto 1em;" /></p>
+      <p>Do you think this entity (the main character in the video) is <strong>animate (a living entity)</strong> or <strong>inanimate (a non-living object)</strong>?</p>
+      <p>Press <kbd>1</kbd> for animate (living), <kbd>2</kbd> for inanimate (non-living).</p>
+    `;
+
+    const animacyTrial = {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: animacyStimulus,
+      choices: ['1', '2'],
+      data: { trial_id: trialData.trial_id, question: 'animacy' },
+      on_finish: function(data) {
+        data.animacy_response = data.response === '1' ? 'animate' : 'not_animate';
+      }
+    };
+
+    return [
+      { ...fixation, data: { trial_id: trialData.trial_id, phase: 'fixation' } },
+      { ...blank, data: { trial_id: trialData.trial_id, phase: 'blank' } },
+      videoTrial,
+      { ...choiceTrial },
+      { ...explanationTrial },
+      { ...visualGroundingTrial },
+      { ...animacyTrial }
+    ];
+  }
+
+  const welcome = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+      <p>Welcome to the experiment.</p>
+      <p>In this experiment, you will watch a short video and answer questions about it.</p>
+      <p>Press any key to begin.</p>
+    `,
+    choices: 'ALL_KEYS'
+  };
+
+  const goodbye = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+      <p>Thank you for participating!</p>
+      <p>You have completed the experiment.</p>
+      <p id="prolific-link"></p>
+    `,
+    choices: 'NO_KEYS',
+    trial_duration: 5000,
+    on_load: function() {
+      const url = jsPsych.data.getURLVariable('COMPLETION_URL') || PROLIFIC_COMPLETION_URL;
+      const linkEl = document.getElementById('prolific-link');
+      if (linkEl && url) {
+        linkEl.innerHTML = '<a href="' + decodeURIComponent(url) + '">Click here to return to Prolific</a>';
+      }
+    }
+  };
+
+  async function run() {
+    await loadManifest();
+    let fullTimeline = [buildCaptchaTrial(), consentTrial, welcome];
+
+    TRIAL_MANIFEST.forEach(t => {
+      fullTimeline = fullTimeline.concat(buildTrialTimeline(t));
+    });
+
+    fullTimeline.push(goodbye);
+    jsPsych.run(fullTimeline);
+  }
+
+  run();
+</script>
+</html>
